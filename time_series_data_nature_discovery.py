@@ -148,43 +148,51 @@ class SeasonalityDetector:
         return daily_data, weekly_data, monthly_data, yearly_data
 
     def autocorrelation_analysis(self,
+                                 diffed_ts=None,
+                                 find_pq=False,
                                  segments: str = 'daily'):
         """
-        Analyze autocorrelation patterns
+        Analyzes autocorrelation patterns and suggests initial ARIMA parameters.
 
-        args:
+        Args:
             segments: str, segments for determine the correlation, limited to daily, weekly
-        returns:
+        Returns:
             None
-
         """
         print("\n=== AUTOCORRELATION ANALYSIS ===")
 
-        # Plot ACF and PACF
-        fig, axes = plt.subplots(2, 1, figsize=(15, 8))
-
-        # based on the segments to check the lags
-        if segments == 'daily':
-            ts = self.ts
-        elif segments == 'weekly':
-            ts = self.weekly
+        if isinstance(diffed_ts, pd.Series):
+            ts = diffed_ts
         else:
-            print(f"'{segments}' is not a suitable segment!")
+            # based on the segments to check the lags
+            if segments == 'daily':
+                ts = self.ts.dropna()
+            elif segments == 'weekly':
+                ts = self.weekly.dropna()
+            else:
+                print(f"'{segments}' is not a suitable segment!")
+                return None
 
-        # default lags
-        lags = 50
-        # ensure there's enough lags for look back
-        if len(ts) < lags:
-            lags = len(ts) - 1
+        # A common rule of thumb for lags
+        n_lags = min(40, len(ts)//2 - 1)
+        if n_lags < 1:
+            print("Not enough data to plot ACF/PACF.")
+            return None
 
-        plot_acf(ts.dropna(), lags=lags,
-                 ax=axes[0], title='Autocorrelation Function')
-        axes[0].set_xlabel('Lags')
-        plot_pacf(ts.dropna(), lags=lags/2,
-                  ax=axes[1], title='Partial Autocorrelation Function')
-        axes[1].set_xlabel('Lags')
+        # --- 1. Plot ACF (for suggesting 'q') ---
+        plt.figure(figsize=(12, 6))
+        ax1 = plt.gca()  # Get current axes
+        plot_acf(ts, lags=n_lags, ax=ax1,
+                 title='Autocorrelation Function (for q)')
+        ax1.set_xlabel('Lags')
+        plt.show()
 
-        plt.tight_layout()
+        # --- 2. Plot PACF (for suggesting 'p') ---
+        plt.figure(figsize=(12, 6))
+        ax2 = plt.gca()  # Get current axes
+        plot_pacf(ts, lags=n_lags, ax=ax2,
+                  title='Partial Autocorrelation Function (for p)')
+        ax2.set_xlabel('Lags')
         plt.show()
 
         print("\n=== Overall correlation in daily ===")
@@ -196,6 +204,39 @@ class SeasonalityDetector:
             if len(self.ts) > lag:
                 correlation = self.ts.autocorr(lag=lag)
                 print(f"Lag {lag} autocorrelation: {correlation:.4f}")
+
+        # --- 3. Programmatically suggest p and q values ---
+        if find_pq:
+            try:
+                # Calculate ACF and PACF values and their confidence intervals
+                conf_interval = 1.96 / (len(ts)**0.5)
+
+                # For q (from ACF)
+                acf_values = acf(ts, nlags=n_lags, fft=False)
+                # Find the last significant lag (ignoring lag 0)
+                suggested_q = self.__class__._suggest_cutoff(
+                    acf_values[1:], conf_interval)
+
+                # For p (from PACF)
+                pacf_values = pacf(ts, nlags=n_lags, method='ywm')
+                # Find the last significant lag (ignoring lag 0)
+                suggested_p = self.__class__._suggest_cutoff(
+                    pacf_values[1:], conf_interval)
+
+                print("\n--- Initial ARIMA Parameter Suggestion ---")
+                print(f"The shaded area is the 95% confidence interval.")
+                print(f"Spikes outside this area are statistically significant.")
+                print(f"\nSuggested q value (from ACF cut-off): {suggested_q}")
+                print(f"Suggested p value (from PACF cut-off): {suggested_p}")
+                print(
+                    "\nNote: These are starting points. Always test different parameter combinations.")
+                return suggested_q, suggested_p
+
+            except Exception as e:
+                print(
+                    f"Could not programmatically suggest parameters due to an error: {e}")
+                return None, None
+
         return None
 
     def seasonal_decomposition(self, model='additive', period=365):
@@ -454,6 +495,42 @@ class SeasonalityDetector:
                 print("  Result: No significant autocorrelation")
         except:
             print("Ljung-Box test failed")
+
+    @staticmethod
+    def _suggest_cutoff(values, conf_interval, consecutive_insignificant=2):
+        """
+        Suggests a cut-off point based on the first sequence of insignificant lags.
+
+        Args:
+            values (np.array): The ACF or PACF values (lag 0 should be excluded).
+            conf_interval (float): The threshold for significance.
+            consecutive_insignificant (int): How many consecutive insignificant lags to require
+                                             before declaring a cut-off.
+
+        Returns:
+            int: The suggested parameter value (the lag of the cut-off).
+        """
+        for i in range(len(values)):
+            # Check if the current lag and the next 'n' lags are all insignificant
+            is_insignificant_sequence = True
+
+            # Ensure we don't go out of bounds
+            if i + consecutive_insignificant > len(values):
+                break
+
+            for j in range(consecutive_insignificant):
+                if np.abs(values[i+j]) > conf_interval:
+                    is_insignificant_sequence = False
+                    break
+
+            if is_insignificant_sequence:
+                # The cut-off is at the lag *before* this insignificant sequence starts.
+                # The index 'i' corresponds to lag 'i+1'. So the cut-off lag is 'i'.
+                return i
+
+        # If no clear cut-off is found, it might be a tailing-off pattern.
+        # In this case, suggesting a small default value is often safer.
+        return 1  # Or you could return a higher number based on another heuristic
 
 
 if __name__ == "__main__":
