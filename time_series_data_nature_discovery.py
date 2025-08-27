@@ -20,10 +20,10 @@ plt.style.use('default')
 # TODO: docstring and comments
 
 
-class SeasonalityDetector:
+class TimeSeriesAnalyzer:
     def __init__(self, data, date_column=None, value_column=None):
         """
-        Initialize the seasonality detector
+        Initialize the time series analyzer
 
         Parameters:
         - data: DataFrame with date and value columns, or Series with datetime index
