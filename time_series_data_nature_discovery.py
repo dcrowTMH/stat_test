@@ -104,54 +104,6 @@ class TimeSeriesAnalyzer:
         plt.tight_layout()
         plt.show()
 
-    def time_step_lag_linear_regression_plot(self):
-        fig, axes = plt.subplots(2, 1, figsize=(15, 10))
-        axes[0].plot(self.df['time'], self.df[self.value_column], color='0.75')
-        sns.regplot(x='time', y=self.value_column, data=self.df,
-                    ci=None, scatter_kws=dict(color='0.25'), ax=axes[0])
-        axes[0].set_title(f'Time Plot of {self.value_column}')
-
-        sns.regplot(x='lag_1', y=self.value_column, data=self.df,
-                    ci=None, scatter_kws=dict(color='0.25'), ax=axes[1])
-        axes[1].set_aspect('equal')
-        axes[1].set_title(f'Lag Plot (Shift = 1) of {self.value_column}')
-
-    def time_step_linear_regression_fit(self):
-        X = self.df.loc[:, ['time']]
-        y = self.df.loc[:, self.value_column]
-
-        model = LinearRegression()
-        model.fit(X, y)
-        y_pred = pd.Series(model.predict(X), index=X.index)
-        # plot the model got fitted
-        ax = y.plot(**plot_params)
-        ax = y_pred.plot(ax=ax, linewidth=3)
-        ax.set_title(f'Time Plot of {self.value_column}')
-        # Access the coefficients and intercept
-        print(f"Intercept: {model.intercept_}")
-        print(f"Coefficients: {model.coef_}")
-        return model, y, y_pred
-
-    def lag_linear_regression_fit(self):
-        X = self.df.loc[:, ['lag_1']].dropna()
-        y = self.df.loc[:, self.value_column]
-        # drop the target value that's from the blank
-        y, X = y.align(X, join='inner')
-
-        model = LinearRegression()
-        model.fit(X, y)
-        y_pred = pd.Series(model.predict(X), index=X.index)
-        # plot the model got fitted
-        fig, ax = plt.subplots()
-        ax.plot(X['lag_1'], y, '.', color='0.25')
-        ax.plot(X['lag_1'], y_pred)
-        ax.set(aspect='equal', ylabel=f'{self.value_column}',
-               xlabel='lag_1', title=f'Lag Plot of {self.value_column}')
-        # Access the coefficients and intercept
-        print(f"Intercept: {model.intercept_}")
-        print(f"Coefficients: {model.coef_}")
-        return model, y, y_pred
-
     def daily_to_weekly_and_yearly(self, date_col=None, value_col=None, method='mean', week_start='Monday'):
         """
         Convert daily data to weekly and yearly data
@@ -490,63 +442,6 @@ class TimeSeriesAnalyzer:
             ax.axis('off')
             plt.tight_layout()
             plt.show()
-
-    def trend_analysis(self, window_size=30):
-        """
-
-        """
-        # set up the window size
-        window = min(window_size, len(self.ts)//4)
-        # rolling the data to calculate the moving average
-        moving_average = self.ts.rolling(
-            window=window,
-            center=True,
-            min_periods=int(np.ceil(window / 2))
-        ).mean()
-
-        # y will be the target value we already have
-        y = self.ts.copy()
-        # prepare the future index to make sure the index type and the date for forecast
-        future_index = pd.date_range(
-            start=y.index[-1] + pd.Timedelta(days=1),
-            periods=90,
-            freq='D'  # Make sure to specify the correct frequency!
-        )
-        # initiate the DeterministicProcess to turn the data with polynomial order 3
-        dp = DeterministicProcess(
-            index=y.index,
-            order=3,
-        )
-        # get the trend based on the time range
-        X = dp.in_sample()
-
-        # DeterministicProcess is used, fit intercept become false is to prevent duplication
-        model = LinearRegression(fit_intercept=False)
-        # fit the model
-        model.fit(X, y)
-
-        # predict the original data to look at the trend
-        y_pred = pd.Series(model.predict(X), index=X.index)
-        # get ready the future days and predict based on the trend
-        X_fore = dp.out_of_sample(steps=90, forecast_index=future_index)
-        y_fore = pd.Series(model.predict(X_fore), index=X_fore.index)
-
-        # plot the chart for visiblility of the data point, trend from moving average,
-        # prediction for test and the future forecast based on the trend
-        ax2 = y.plot(
-            title=f"{self.value_column} - Linear Trend Forecast", **plot_params)
-        moving_average.plot(
-            ax=ax2, linewidth=3, title=f"{self.value_column} - {int(np.ceil(window / 2))}-Day Moving Average", legend=False,
-        )
-        ax2 = y_pred.plot(ax=ax2, linewidth=3, label="Trend")
-        ax2 = y_fore.plot(ax=ax2, linewidth=3,
-                          label="Trend Forecast", color="C3")
-        ax2.legend()
-
-        # Statistical Tests (remains the same)
-        print("\n" + "="*60)
-        print("STATISTICAL TESTS")
-        print("="*60)
 
     @staticmethod
     def stationary_test_adf(ts):
